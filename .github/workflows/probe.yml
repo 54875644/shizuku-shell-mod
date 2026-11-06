@@ -1,0 +1,48 @@
+name: probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: get apktool
+        run: curl -sSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+      - name: decompile
+        run: java -jar apktool.jar d -f input/Shizuku-orig.apk -o work
+      - name: grep starter
+        run: |
+          cd work
+          echo '--- files with libshizuku.so ---'
+          grep -rln 'libshizuku.so' smali --include='*.smali'
+          echo '--- files with --apk= ---'
+          grep -rln -- '--apk=' smali --include='*.smali'
+          echo '--- files with start_on_boot ---'
+          grep -rln 'start_on_boot' smali --include='*.smali'
+          echo '--- files with shizuku_starter ---'
+          grep -rln 'shizuku_starter' smali --include='*.smali'
+      - name: sanitize tree
+        run: |
+          set -e
+          mkdir -p out
+          cd work
+          i=0
+          find smali smali_assets res/xml res/values AndroidManifest.xml apktool.yml -type f | sort | while read -r f; do
+            i=$((i+1))
+            n=$(printf '%05d' $i)
+            cp "$f" "../out/f_$n.smali"
+            echo "$f" >> ../out/map.txt
+          done
+          cd ..
+          echo "files: $(ls out | wc -l)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tree
+          path: out
+          retention-days: 3
