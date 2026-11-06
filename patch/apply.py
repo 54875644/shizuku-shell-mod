@@ -38,13 +38,10 @@ def main(work):
     if not os.path.isdir(ROOT):
         raise SystemExit('no such work dir: %r' % work)
 
-    # ---------------------------------------------------------------- new class
-    src = os.path.join(REPO, 'patch', 'ShellStart.smali')
-    dst_dir = os.path.join(ROOT, 'smali', 'moe', 'shizuku', 'manager')
-    if not os.path.isdir(dst_dir):
-        raise SystemExit('missing smali/moe/shizuku/manager in %s' % ROOT)
-    shutil.copyfile(src, os.path.join(dst_dir, 'ShellStart.smali'))
-    print('added smali/moe/shizuku/manager/ShellStart.smali')
+    # NOTE: moe/shizuku/manager/ShellStart is compiled from patch/java/**/*.java
+    # into a second dex (classes2.dex) by the build workflow, because the su /
+    # ProcessBuilder / stream handling is much easier to get right in Java than in
+    # hand written smali.
 
     # ------------------------------------------------------------ MainActivity: menu item
     main_activity = os.path.join(
