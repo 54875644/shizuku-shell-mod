@@ -19,14 +19,15 @@ jobs:
       - name: grep starter
         run: |
           cd work
+          echo "smali count: $(find smali -name '*.smali' | wc -l)"
           echo '--- files with libshizuku.so ---'
-          grep -rln 'libshizuku.so' smali --include='*.smali'
+          grep -rl 'libshizuku\.so' smali || true
           echo '--- files with --apk= ---'
-          grep -rln -- '--apk=' smali --include='*.smali'
+          grep -rl -e '--apk=' smali || true
           echo '--- files with start_on_boot ---'
-          grep -rln 'start_on_boot' smali --include='*.smali'
+          grep -rl 'start_on_boot' smali || true
           echo '--- files with shizuku_starter ---'
-          grep -rln 'shizuku_starter' smali --include='*.smali'
+          grep -rl 'shizuku_starter' smali || true
       - name: sanitize tree
         run: |
           set -e
