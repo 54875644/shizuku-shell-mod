@@ -1,34 +1,25 @@
 package moe.shizuku.manager;
 
-import android.annotation.SuppressLint;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
-import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Starts the Shizuku server as the "shell" user (uid 2000) by spawning
- * "/system/bin/su" (no arguments, so root managers such as SuKiSU can apply their
- * "app == shell" template) and feeding the bundled libshizuku.so starter command to
- * its stdin.
+ * Starts the Shizuku server as the "shell" user (uid 2000).
  *
- * The starter is a native ELF executable, so it must be executed directly - never
- * through "sh".  Command form:  <nativeLibraryDir>/libshizuku.so --apk=<base.apk>
+ * The starter is a native ELF executable (libshizuku.so in nativeLibraryDir), so it
+ * is executed directly - never through "sh".  Root managers such as SuKiSU can be
+ * configured so that spawning "/system/bin/su" hands out uid 2000 instead of uid 0;
+ * that is the shell identity used here.
  *
- * Everything the starter prints is collected, written to
- *   /sdcard/Android/data/moe.shizuku.privileged.api/files/shizuku-shell-start.log
- * and copied to the clipboard, so failures can be diagnosed without a PC.
+ * Release build: no log files, no clipboard, only short toast feedback.
  */
 public final class ShellStart {
 
@@ -43,62 +34,46 @@ public final class ShellStart {
         if (ctx == null) {
             return;
         }
-        toast(ctx, "正在通过 /system/bin/su 获取 shell 身份并启动 Shizuku\u2026");
+        toast(ctx, "\u6b63\u5728\u4ee5 shell \u8eab\u4efd\u542f\u52a8 Shizuku\u2026");
         Thread t = new Thread(new Runnable() {
             @Override
             public void run() {
-                finish(ctx, doStart(ctx));
+                doStart(ctx);
             }
         }, "shizuku-shell-start");
         t.setDaemon(true);
         t.start();
     }
 
-    private static void finish(Context ctx, String text) {
-        copyToClipboard(ctx, text);
-        saveLog(ctx, text);
-        int nl = text.indexOf('\n');
-        String head = nl > 0 ? text.substring(0, nl) : text;
-        toast(ctx, head);
-    }
-
-    private static String doStart(Context ctx) {
-        StringBuilder log = new StringBuilder();
-        String headline;
+    private static void doStart(Context ctx) {
+        String result;
         try {
-            String starter = ctx.getApplicationInfo().nativeLibraryDir + "/libshizuku.so";
-            String apk = ctx.getApplicationInfo().sourceDir;
-            String cmd = starter + " --apk=" + apk;
-
-            log.append("time: ").append(new Date()).append('\n');
-            log.append("cmd : ").append(cmd).append('\n');
-            log.append("su  : /system/bin/su (no args, command fed on stdin)\n\n");
-
-            String out = runSu(cmd, log);
-            log.append("---- su output ----\n").append(out).append("\n-------------------\n");
-
-            Thread.sleep(1500L);
-            boolean up = pingBinder(log);
-            if (up) {
-                headline = "\u2705 Shizuku 已启动（shell 身份），日志见剪贴板";
+            String cmd = ctx.getApplicationInfo().nativeLibraryDir + "/libshizuku.so"
+                    + " --apk=" + ctx.getApplicationInfo().sourceDir;
+            String out = runSu(cmd);
+            try {
+                Thread.sleep(1600L);
+            } catch (InterruptedException ignored) {
+            }
+            if (pingBinder()) {
+                result = "\u2705 Shizuku \u5df2\u542f\u52a8\uff08shell \u8eab\u4efd\uff09";
             } else if (out.contains("can't kill")) {
-                headline = "\u274c 有残留的旧 Shizuku 服务（root 身份）杀不掉，请重启手机后再试";
+                result = "\u274c \u542f\u52a8\u5931\u8d25\uff1a\u6709\u6b8b\u7559\u7684 Shizuku \u670d\u52a1\u8fdb\u7a0b\uff0c\u8bf7\u91cd\u542f\u624b\u673a\u540e\u91cd\u8bd5";
             } else if (out.contains("non root nor adb user")) {
-                headline = "\u274c 拿到的不是 shell 身份（su 没套用模板），请检查 SuKiSU 模板";
+                result = "\u274c \u542f\u52a8\u5931\u8d25\uff1a\u6ca1\u6709\u62ff\u5230 shell \u8eab\u4efd\uff0c\u8bf7\u68c0\u67e5 SuKiSU/Magisk \u6388\u6743";
             } else if (out.contains("binder")) {
-                headline = "\u274c SELinux 拦住了 binder（su 域问题），日志已复制";
+                result = "\u274c \u542f\u52a8\u5931\u8d25\uff1aSELinux \u963b\u6b62\u4e86 binder \u8fde\u63a5";
             } else {
-                headline = "\u274c Shizuku 未能启动，日志已复制到剪贴板";
+                result = "\u274c \u542f\u52a8\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5 Shizuku \u8fd0\u884c\u72b6\u6001";
             }
         } catch (Throwable t) {
-            log.append("fatal: ").append(t).append('\n');
-            headline = "\u274c 启动异常: " + t.getClass().getSimpleName() + "，日志已复制";
+            result = "\u274c \u542f\u52a8\u5931\u8d25\uff1a" + t.getClass().getSimpleName();
         }
-        return headline + "\n\n" + log;
+        toast(ctx, result);
     }
 
-    /** Runs one command inside "/system/bin/su" and returns everything it printed. */
-    private static String runSu(String command, StringBuilder log) {
+    /** Runs one command inside "/system/bin/su" and returns what it printed. */
+    private static String runSu(String command) {
         StringBuilder out = new StringBuilder();
         Process p = null;
         try {
@@ -130,14 +105,10 @@ public final class ShellStart {
             reader.setDaemon(true);
             reader.start();
 
-            boolean done = proc.waitFor(SU_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            if (!done) {
-                log.append("su: timeout ").append(SU_TIMEOUT_MS).append("ms\n");
-            }
+            proc.waitFor(SU_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             reader.join(1500L);
             out.append(buf.toString("UTF-8"));
-        } catch (Throwable t) {
-            out.append("runSu error: ").append(t).append('\n');
+        } catch (Throwable ignored) {
         } finally {
             if (p != null) {
                 try {
@@ -149,16 +120,13 @@ public final class ShellStart {
         return out.toString();
     }
 
-    private static boolean pingBinder(StringBuilder log) {
+    private static boolean pingBinder() {
         try {
             Class<?> c = Class.forName("rikka.shizuku.Nn");
             java.lang.reflect.Method m = c.getDeclaredMethod("h");
             m.setAccessible(true);
-            boolean ok = Boolean.TRUE.equals(m.invoke(null));
-            log.append("pingBinder: ").append(ok).append('\n');
-            return ok;
-        } catch (Throwable t) {
-            log.append("pingBinder error: ").append(t).append('\n');
+            return Boolean.TRUE.equals(m.invoke(null));
+        } catch (Throwable ignored) {
             return false;
         }
     }
@@ -175,31 +143,6 @@ public final class ShellStart {
         } catch (Throwable ignored) {
         }
         return null;
-    }
-
-    @SuppressLint("NewApi")
-    private static void copyToClipboard(Context ctx, String text) {
-        try {
-            ClipboardManager cm =
-                    (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("ShizukuShellStart", text));
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private static void saveLog(Context ctx, String text) {
-        try {
-            File dir = ctx.getExternalFilesDir(null);
-            if (dir != null) {
-                File f = new File(dir, "shizuku-shell-start.log");
-                FileOutputStream fo = new FileOutputStream(f);
-                fo.write(text.getBytes(UTF8));
-                fo.close();
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     private static void toast(final Context ctx, final String msg) {
