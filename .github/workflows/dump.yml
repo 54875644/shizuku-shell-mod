@@ -1,0 +1,30 @@
+name: dump
+on:
+  workflow_dispatch:
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Get apktool
+        run: |
+          curl -sSL -o /tmp/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          ls -l /tmp/apktool.jar
+      - name: Decompile
+        run: |
+          java -jar /tmp/apktool.jar d -f input/Shizuku-orig.apk -o work
+          echo "=== top ==="
+          ls work
+          echo "=== sizes ==="
+          du -sh work; find work -name '*.smali' | wc -l
+          echo "=== manifest greps ==="
+          grep -n 'receiver\|StarterActivity\|SettingsActivity\|ShizukuApplication' work/AndroidManifest.xml | head -40 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decompiled
+          path: work
+          include-hidden-files: true
