@@ -1,0 +1,53 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download apktool
+        run: |
+          curl -sSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          java -jar apktool.jar --version
+
+      - name: Decompile
+        run: java -jar apktool.jar d -f input/Shizuku-orig.apk -o work
+
+      - name: Apply patches
+        run: python3 patch/apply.py work
+
+      - name: Rebuild
+        run: java -jar apktool.jar b -f work -o Shizuku-shellmod-unsigned.apk
+
+      - name: Align and sign
+        run: |
+          set -e
+          if [ -n "$ANDROID_HOME" ]; then SDK="$ANDROID_HOME"; else SDK="/usr/local/lib/android/sdk"; fi
+          BT=$(ls -d "$SDK"/build-tools/* | tail -1)
+          echo "build-tools: $BT"
+          "$BT/zipalign" -p -f 4 Shizuku-shellmod-unsigned.apk Shizuku-shellmod-aligned.apk
+          "$BT/apksigner" sign \
+            --ks patch/mod-key.jks --ks-key-alias shellmod \
+            --ks-pass pass:shellmod123 --key-pass pass:shellmod123 \
+            --min-sdk-version 24 \
+            --out Shizuku-shellmod.apk Shizuku-shellmod-aligned.apk
+          "$BT/apksigner" verify --verbose Shizuku-shellmod.apk
+          sha256sum Shizuku-shellmod.apk
+          ls -l Shizuku-shellmod.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: shizuku-apk
+          path: Shizuku-shellmod.apk
