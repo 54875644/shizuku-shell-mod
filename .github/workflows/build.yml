@@ -16,6 +16,13 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Locate Android SDK tools
+        run: |
+          if [ -n "$ANDROID_HOME" ]; then SDK="$ANDROID_HOME"; else SDK="/usr/local/lib/android/sdk"; fi
+          echo "SDK=$SDK" >> "$GITHUB_ENV"
+          echo "BT=$(ls -d "$SDK"/build-tools/* | tail -1)" >> "$GITHUB_ENV"
+          echo "AJ=$(ls -d "$SDK"/platforms/android-3*/android.jar | tail -1)" >> "$GITHUB_ENV"
+
       - name: Download apktool
         run: |
           curl -sSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
@@ -27,15 +34,32 @@ jobs:
       - name: Apply patches
         run: python3 patch/apply.py work
 
+      - name: Build ShellStart helper dex
+        run: |
+          set -e
+          echo "build-tools: $BT"
+          echo "android.jar: $AJ"
+          mkdir -p javaout dexout
+          javac --release 8 -encoding UTF-8 -classpath "$AJ" -d javaout \
+            patch/java/moe/shizuku/manager/ShellStart.java
+          "$BT/d8" --release --min-api 24 --lib "$AJ" --output dexout \
+            $(find javaout -name '*.class' | sort)
+          ls -l dexout
+          python3 -c "d=open('dexout/classes.dex','rb').read(); assert d[:4]==b'dex\n', 'not a dex'; print('helper dex bytes:', len(d))"
+
       - name: Rebuild
         run: java -jar apktool.jar b -f work -o Shizuku-shellmod-unsigned.apk
+
+      - name: Inject helper dex
+        run: |
+          set -e
+          cp dexout/classes.dex classes2.dex
+          zip -j Shizuku-shellmod-unsigned.apk classes2.dex
+          unzip -l Shizuku-shellmod-unsigned.apk | grep -E 'classes[0-9]*\.dex'
 
       - name: Align and sign
         run: |
           set -e
-          if [ -n "$ANDROID_HOME" ]; then SDK="$ANDROID_HOME"; else SDK="/usr/local/lib/android/sdk"; fi
-          BT=$(ls -d "$SDK"/build-tools/* | tail -1)
-          echo "build-tools: $BT"
           "$BT/zipalign" -p -f 4 Shizuku-shellmod-unsigned.apk Shizuku-shellmod-aligned.apk
           "$BT/apksigner" sign \
             --ks patch/mod-key.jks --ks-key-alias shellmod \
