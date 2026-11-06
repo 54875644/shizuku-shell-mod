@@ -24,15 +24,9 @@
 
     iget v1, v0, Lrikka/shizuku/Gn;->a:I
 
-    if-eqz v1, :cond_root
+    if-nez v1, :cond_shell
 
-    const-string v1, "需要 root 权限才能以 shell(2000) 启动 Shizuku"
-
-    invoke-static {v1}, Lmoe/shizuku/manager/ShellStart;->toast(Ljava/lang/CharSequence;)V
-
-    return-void
-
-    :cond_root
+    # ---------------------------------------------------------------- root shell
     new-instance v1, Ljava/lang/StringBuilder;
 
     invoke-direct {v1}, Ljava/lang/StringBuilder;-><init>()V
@@ -49,6 +43,21 @@
 
     move-result-object v1
 
+    const-string v2, "已获取 root，正在以 su 2000 降权启动 Shizuku 服务..."
+
+    invoke-static {v2}, Lmoe/shizuku/manager/ShellStart;->toast(Ljava/lang/CharSequence;)V
+
+    goto :build_job
+
+    # ------------------------------------------- already demoted shell (adb-like)
+    :cond_shell
+    sget-object v1, Lrikka/shizuku/Qo;->b:Ljava/lang/String;
+
+    const-string v2, "当前 shell 已降权，直接以 shell 身份启动 Shizuku 服务..."
+
+    invoke-static {v2}, Lmoe/shizuku/manager/ShellStart;->toast(Ljava/lang/CharSequence;)V
+
+    :build_job
     filled-new-array {v1}, [Ljava/lang/String;
 
     move-result-object v2
@@ -83,10 +92,6 @@
 
     iput-object v2, v1, Lrikka/shizuku/Sj;->g:Lrikka/shizuku/Cr;
 
-    const-string v2, "正在以 shell(uid 2000) 启动 Shizuku 服务..."
-
-    invoke-static {v2}, Lmoe/shizuku/manager/ShellStart;->toast(Ljava/lang/CharSequence;)V
-
     :try_start_b
     invoke-virtual {v0, v1}, Lrikka/shizuku/Gn;->b(Lrikka/shizuku/Sj;)V
     :try_end_b
@@ -102,7 +107,7 @@
     return-void
 
     :catch_noroot
-    const-string v0, "无法获取 root shell，请先授予 root 权限"
+    const-string v0, "无法启动 shell，请先在 SuKiSU/Magisk 中给 Shizuku 授权"
 
     invoke-static {v0}, Lmoe/shizuku/manager/ShellStart;->toast(Ljava/lang/CharSequence;)V
 
